@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 import { generateQuizEstimate } from '@/lib/ai/estimator';
+import {
+  CLIENT_SESSION_COOKIE_NAME,
+  getClientSessionCookieOptions,
+  resolveOrCreateClientSession,
+} from '@/lib/auth';
 import { createQuizLead } from '@/lib/lead-service';
 import { checkQuizRateLimit, getClientIp } from '@/lib/rate-limit';
 import { quizRequestSchema } from '@/lib/validators';
@@ -32,11 +37,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const { sessionId, quizAnswers, contactInfo, userMetadata } = parsed.data;
+    const { quizAnswers, contactInfo, userMetadata } = parsed.data;
+    const clientSession = await resolveOrCreateClientSession();
     const { result, leadTemperature } = await generateQuizEstimate(quizAnswers);
 
     const lead = await createQuizLead({
-      sessionId,
+      sessionId: clientSession.sessionId,
       quizAnswers,
       contactInfo,
       userMetadata,
@@ -44,11 +50,19 @@ export async function POST(request: Request) {
       result,
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       leadCode: lead.leadCode,
       result,
     });
+    if (clientSession.isNew) {
+      response.cookies.set(
+        CLIENT_SESSION_COOKIE_NAME,
+        clientSession.cookieToken,
+        getClientSessionCookieOptions()
+      );
+    }
+    return response;
   } catch (err) {
     console.error('[POST /api/quiz] Error:', err);
     return NextResponse.json(

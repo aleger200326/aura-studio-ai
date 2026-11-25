@@ -3,6 +3,18 @@ interface RateLimitBucket {
 }
 
 const buckets = new Map<string, RateLimitBucket>();
+const MAX_BUCKETS = 1000;
+
+function cleanupBuckets(now: number) {
+  if (buckets.size <= MAX_BUCKETS) return;
+  const maxAgeMs = 24 * 60 * 60 * 1000;
+  for (const [k, v] of buckets.entries()) {
+    const latest = v.timestamps[v.timestamps.length - 1] ?? 0;
+    if (now - latest > maxAgeMs) {
+      buckets.delete(k);
+    }
+  }
+}
 
 function pruneAndCheck(key: string, limit: number, windowMs: number): {
   allowed: boolean;
@@ -10,6 +22,8 @@ function pruneAndCheck(key: string, limit: number, windowMs: number): {
   retryAfterSec: number;
 } {
   const now = Date.now();
+  cleanupBuckets(now);
+
   const windowStart = now - windowMs;
   const bucket = buckets.get(key) ?? { timestamps: [] };
 
@@ -32,12 +46,21 @@ function pruneAndCheck(key: string, limit: number, windowMs: number): {
 }
 
 export function getClientIp(request: Request): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) {
-    return forwarded.split(',')[0]?.trim() || '127.0.0.1';
+  // Prefer platform-set headers (Vercel / reverse proxy) over raw client-spoofable headers
+  const vercelIp = request.headers.get('x-vercel-forwarded-for');
+  if (vercelIp) {
+    return vercelIp.split(',')[0]?.trim() || '127.0.0.1';
   }
   const realIp = request.headers.get('x-real-ip');
-  return realIp?.trim() || '127.0.0.1';
+  if (realIp?.trim()) {
+    return realIp.trim();
+  }
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) {
+    const parts = forwarded.split(',').map((s) => s.trim()).filter(Boolean);
+    return parts[parts.length - 1] || '127.0.0.1';
+  }
+  return '127.0.0.1';
 }
 
 export function checkChatRateLimit(ip: string) {
@@ -54,6 +77,8 @@ export function checkQuizRateLimit(ip: string) {
 export function checkAdminAuthRateLimit(ip: string, recordFailure = false) {
   const key = `admin:auth:${ip}`;
   const now = Date.now();
+  cleanupBuckets(now);
+
   const windowMs = 15 * 60 * 1000;
   const bucket = buckets.get(key) ?? { timestamps: [] };
   bucket.timestamps = bucket.timestamps.filter((ts) => ts > now - windowMs);

@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Lead } from '@prisma/client';
-import { isAiMockMode } from './env';
 import type { ChatMessageEntry } from '@/types/lead';
 
 const STORE_PATH = path.join(process.cwd(), '.aura-local-db.json');
@@ -18,8 +17,11 @@ interface LocalStoreData {
 }
 
 export function isDbFallbackAllowed(err: unknown): boolean {
-  if (process.env.ALLOW_DB_FALLBACK === 'false') return false;
-  if (process.env.NODE_ENV === 'production' && !isAiMockMode() && process.env.ALLOW_DB_FALLBACK !== 'true') {
+  // Never persist leads or settings to ephemeral local disk in production
+  if (process.env.NODE_ENV === 'production') {
+    return false;
+  }
+  if (process.env.ALLOW_DB_FALLBACK === 'false') {
     return false;
   }
   const msg = err instanceof Error ? err.message : String(err);
@@ -41,7 +43,10 @@ async function readStore(): Promise<LocalStoreData> {
 }
 
 async function writeStore(data: LocalStoreData): Promise<void> {
-  await fs.writeFile(STORE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+  await fs.writeFile(STORE_PATH, JSON.stringify(data, null, 2), {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
 }
 
 function hydrateLead(

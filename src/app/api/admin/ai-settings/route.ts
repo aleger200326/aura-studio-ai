@@ -110,7 +110,13 @@ export async function POST(request: Request) {
       reply: text.trim(),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Ошибка подключения к Google Gemini API';
-    return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+    console.error('[POST /api/admin/ai-settings] Error:', err);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'Не удалось подключиться к Google Gemini API. Проверьте ключ, квоту или попробуйте другую модель.',
+      },
+      { status: 400 }
+    );
   }
 }

@@ -3,6 +3,10 @@ import { createDataStreamResponse, formatDataStreamPart, streamText } from 'ai';
 import { resolveActiveAiClient } from '@/lib/ai/client';
 import { buildChatSystemPrompt } from '@/lib/ai/prompts';
 import { buildChatTools } from '@/lib/ai/tools';
+import {
+  buildClientSessionSetCookieHeader,
+  resolveOrCreateClientSession,
+} from '@/lib/auth';
 import { extractTariffRatesFromMarkdown, getKnowledgeBase } from '@/lib/knowledge';
 import { createOrUpdateChatLead, saveChatLog } from '@/lib/lead-service';
 import { checkChatRateLimit, getClientIp } from '@/lib/rate-limit';
@@ -174,7 +178,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Некорректный формат сообщений' }, { status: 400 });
     }
 
-    const { sessionId, userMetadata } = parsed.data;
+    const { userMetadata } = parsed.data;
+    const clientSession = await resolveOrCreateClientSession();
+    const sessionId = clientSession.sessionId;
     const recentMessages = parsed.data.messages
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .slice(-20)
@@ -208,7 +214,7 @@ export async function POST(request: Request) {
         console.warn('[chat] Failed to save mock ChatLog:', err)
       );
 
-      return createDataStreamResponse({
+      const mockResponse = createDataStreamResponse({
         execute: async (dataStream) => {
           if (mock.toolCall) {
             dataStream.write(
@@ -233,6 +239,13 @@ export async function POST(request: Request) {
           }
         },
       });
+      if (clientSession.isNew) {
+        mockResponse.headers.append(
+          'Set-Cookie',
+          buildClientSessionSetCookieHeader(clientSession.cookieToken)
+        );
+      }
+      return mockResponse;
     }
 
     const systemPrompt = await buildChatSystemPrompt();
@@ -276,7 +289,14 @@ export async function POST(request: Request) {
       },
     });
 
-    return result.toDataStreamResponse();
+    const streamResponse = result.toDataStreamResponse();
+    if (clientSession.isNew) {
+      streamResponse.headers.append(
+        'Set-Cookie',
+        buildClientSessionSetCookieHeader(clientSession.cookieToken)
+      );
+    }
+    return streamResponse;
   } catch (err) {
     console.error('[POST /api/chat] Error:', err);
     return NextResponse.json(
