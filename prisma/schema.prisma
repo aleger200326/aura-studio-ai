@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LeadSource {
+  AI_QUIZ
+  AI_CHAT
+}
+
+enum LeadStatus {
+  NEW
+  IN_PROGRESS
+  COMPLETED
+  SPAM
+}
+
+enum LeadTemperature {
+  HOT
+  WARM
+  COLD
+}
+
+enum TelegramDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model Lead {
+  id                String                 @id @default(cuid())
+  leadCode          String                 @unique
+  sessionId         String
+  source            LeadSource
+  status            LeadStatus             @default(NEW)
+  temperature       LeadTemperature        @default(WARM)
+
+  clientName        String
+  contact           String
+  preferredChannel  String                 @default("Не указано")
+  comment           String?
+
+  quizAnswers       Json?
+  aiAnalysis        Json
+  userMetadata      Json
+
+  telegramStatus    TelegramDeliveryStatus @default(PENDING)
+  telegramMessageId Int?
+  telegramChatId    String?
+  telegramError     String?
+  assignedManager   String?
+
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@index([sessionId])
+  @@index([createdAt(sort: Desc)])
+  @@index([status])
+}
+
+model ChatLog {
+  id        String   @id @default(cuid())
+  sessionId String   @unique
+  messages  Json
+  leadId    String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model SystemSetting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
